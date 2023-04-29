@@ -251,6 +251,68 @@ SELECT
 FROM {{ ref('orders') }}
 ```
 
+Now let's create another macro as an example:
+
+In your dbt project directory, create a new folder called macros.
+Inside the macros folder, create a new file with the extension .sql for your macro, such as date_diff.sql.
+Define your macro using the {% macro %} tag. For example:
+```sql
+{% macro date_diff(date_col1, date_col2) %}
+    DATEDIFF('day', {{ date_col1 }}, {{ date_col2 }})
+{% endmacro %}
+```
+In this example, we're creating a macro named date_diff that takes two arguments, date_col1 and date_col2, and returns the difference in days between the two dates.
+
+Now, let's use the macro in a new model called customer_age.sql:
+
+```sql
+WITH customers AS (
+    SELECT *
+    FROM {{ source('raw_data', 'source_customers') }}
+),
+
+customer_age AS (
+    SELECT
+        customer_id,
+        first_name,
+        last_name,
+        email,
+        created_at,
+        {{ date_diff('created_at', 'CURRENT_DATE()') }} as age_in_days
+    FROM customers
+)
+SELECT * FROM customer_age
+```
+
+Finally, create a new entry in your schema.yml file for the customer_age model:
+
+```yaml
+  - name: customer_age
+    description: "Customers with their age in days"
+    columns:
+      - name: customer_id
+        description: "Unique identifier for the customer"
+        tests:
+          - unique
+          - not_null
+      - name: first_name
+        description: "Customer's first name"
+      - name: last_name
+        description: "Customer's last name"
+      - name: email
+        description: "Customer's email address"
+        tests:
+          - not_null
+      - name: created_at
+        description: "Date when the customer was created"
+        tests:
+          - not_null
+      - name: age_in_days
+        description: "Customer's age in days"
+        tests:
+          - not_null
+
+```
 ![VSCode - Create Macro](https://i.imgur.com/6ZkA2mY.png)
 
 ## Project Structure
@@ -270,7 +332,6 @@ A typical dbt project structure should look like this:
 
 Jinja is a templating language that allows you to write dynamic SQL code in dbt. It enables you to use control structures, variables, and macros to create more flexible and reusable models. Lineage refers to the dependencies between models and other objects in your project. dbt automatically tracks lineage, which allows you to understand the relationships between models and helps with testing and deployment.
 
-![dbt Lineage](https://i.imgur.com/yKUyQyp.png)
 
 ## Schema.yml
 
@@ -467,7 +528,7 @@ dbt docs serve
 
 This will open the documentation site in your web browser.
 
-![dbt Docs](https://i.imgur.com/CTTgTJt.png)
+![image](https://user-images.githubusercontent.com/88837021/235299120-3176491c-63a2-41e0-9b3e-fd2ac95028a0.png)
 
 ## Recap
 
