@@ -313,7 +313,8 @@ Finally, create a new entry in your schema.yml file for the customer_age model:
           - not_null
 
 ```
-![VSCode - Create Macro](https://i.imgur.com/6ZkA2mY.png)
+![image](https://user-images.githubusercontent.com/88837021/235303732-4194728e-c3a7-46a0-aaf2-a5118e8beea5.png)
+
 
 ## Project Structure
 
@@ -443,16 +444,49 @@ For more details on materialization options, check [here](https://docs.getdbt.co
 
 ### Creating Materialized Models
 
-To create a materialized model, set the materialization option in your `dbt_project.yml` file. For example, to create an incremental model:
+Let's say we have a `source_orders` table in Snowflake that we want to transform into a `orders` model using dbt. We want to create a materialized view of this model in Snowflake, which will store the transformed data in a table in Snowflake for faster querying.
 
-```yaml
-models:
-  my_bigquery_project:
-    orders:
-      materialized: incremental
-      incremental_strategy: merge
-      unique_key: order_id
+First, we'll create a SQL file in the `models` directory of our dbt project called `orders.sql`:
+
+```sql
+-- models/orders.sql
+
+{{ config(
+    materialized='table',
+    table_name='orders',
+    unique_key='order_id',
+    persist_docs={'source': 'Orders from source_orders table.'},
+    pre_hook='CREATE OR REPLACE TABLE orders_tmp AS SELECT * FROM source_orders WHERE 1=0;',
+    post_hook='ALTER TABLE orders RENAME TO orders_old; ALTER TABLE orders_tmp RENAME TO orders;'
+) }}
+
+SELECT
+  order_id,
+  customer_id,
+  DATE_TRUNC('month', order_date) AS month,
+  status,
+  total_amount
+FROM {{ ref('source_orders') }}
 ```
+
+In this SQL file, we define our `orders` model as a SELECT statement that transforms the data in the `source_orders` table. We also add a `config` block to specify that we want to use a `table` materialization, set the `table_name` to `orders`, and use `order_id` as the `unique_key`. This tells dbt to create a table in Snowflake with the same schema as our SELECT statement, and to use `order_id` as the primary key.
+
+We also specify `persist_docs` to add documentation to our `orders` table, and `pre_hook` and `post_hook` to create and swap a temporary table with our new `orders` table, respectively. This allows us to create the new table without losing any data or queries that might reference the old `orders` table.
+
+To run this model, we simply use the `dbt run` command in our terminal:
+
+```
+$ dbt run
+```
+
+This will transform the data in our `source_orders` table and create a new table called `orders` in our Snowflake schema.
+
+We can also refresh the materialized view using the `dbt run --full-refresh` command, which will re-run the entire SELECT statement and replace the existing `orders` table with the new results.
+
+By using materialized views in dbt, we can speed up queries on large datasets by pre-aggregating and transforming the data in advance. This can save time and resources when querying data, especially in complex analytics scenarios.
+
+![image](https://user-images.githubusercontent.com/88837021/235303607-574fed1a-82ab-4c0d-abad-bf6fdc73bbca.png)
+
 
 ## Advanced Topics
 
@@ -611,6 +645,8 @@ Run your new incremental model and its tests using the same dbt commands:
 1. Run your models with `dbt run`.
 2. Run your tests with `dbt test`.
 
+![image](https://user-images.githubusercontent.com/88837021/235303077-e9b60234-5f4a-4cac-84a8-6e780646646d.png)
+
 #### Data Freshness
 
 Data freshness is a feature that helps you track the age of the data in your models. To declare data freshness, you can add the `freshness` property to your `sources.yml` file:
@@ -635,6 +671,7 @@ Now, you can run the `dbt source freshness` command to check the freshness of yo
 ```
 dbt source freshness
 ```
+![image](https://user-images.githubusercontent.com/88837021/235303102-8095f621-dfff-423b-98dd-9273c4ec1447.png)
 
 #### Generating Data Documentation
 
