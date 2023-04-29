@@ -32,7 +32,7 @@ Welcome to the exciting world of dbt (Data Build Tool)! This guide is designed f
   - [dbt Utils](#dbt-utils)
   - [Incremental Models](#incremental-models)
   - [Data Freshness](#data-freshness)
-  - [Data Documentation with dbt CLI](#data-documentation-with-dbt-cli)
+  - [Generating Data Documentation](#generating-data-documentation)
 
 ## Getting Started
 
@@ -458,61 +458,185 @@ models:
 
 ### dbt Utils
 
-dbt Utils is a package of utility macros that can help you write more efficient and concise code. To install the package, add the following configuration to your `dbt_project.yml` file:
+Let's move on to the advanced section.
+
+### Advanced
+
+#### Installing and Using dbt-utils
+
+`dbt-utils` is a package that contains several useful utility macros and functions for use in your dbt project. To install the `dbt-utils` package, follow these steps:
+
+1. In your dbt project directory, open the `packages.yml` file. If it doesn't exist, create it.
+2. Add the following lines to the `packages.yml` file:
 
 ```yaml
 packages:
-  - package: dbt-labs/dbt_utils
-    version: 0.7.0
+  - package: fishtown-analytics/dbt_utils
+    version: 0.7.3
 ```
 
-Then, run `dbt deps` to install the package.
+3. Run the following command to install the package:
 
-To use a dbt Utils function, simply call it in your model using the `{% ... %}` syntax. For example:
-
-```sql
-SELECT
-    order_id,
-    customer_id,
-    {% dbt_utils.surrogate_key(order_id, customer_id) %} as unique_key
-FROM {{ ref('orders') }}
+```
+dbt deps
 ```
 
-### Incremental Models
+Now, you can use the functions provided by `dbt-utils`. For example, let's create a model that uses the `surrogate_key` function to create a unique identifier for each row in the `customer_orders` model.
 
-Incremental models allow you to update only new or changed data, making them more efficient for large datasets. To create an incremental model, set the materialization option in your `dbt_project.yml` file as shown earlier. Then, add a filter in your model to select only the new or updated data. For example:
+Create a new model called `customer_orders_surrogate_key.sql`:
 
 ```sql
+{% set customer_order_columns = ['customer_id', 'order_id', 'first_name', 'last_name', 'email', 'order_date', 'total_amount'] %}
+
+WITH customer_orders AS (
+    SELECT *
+    FROM {{ ref('customer_orders') }}
+),
+
+customer_orders_surrogate_key AS (
+    SELECT
+        {{ dbt_utils.surrogate_key(customer_order_columns) }} as unique_id,
+        *
+    FROM customer_orders
+)
+
+SELECT * FROM customer_orders_surrogate_key
+```
+
+Add a new entry in your `schema.yml` file for the `customer_orders_surrogate_key` model:
+
+```yaml
+  - name: customer_orders_surrogate_key
+    description: "Customer orders with a surrogate key"
+    columns:
+      - name: unique_id
+        description: "Unique identifier for each row"
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: "Unique identifier for the customer"
+        tests:
+          - unique
+          - not_null
+      - name: order_id
+        description: "Unique identifier for the order"
+        tests:
+          - unique
+          - not_null
+      - name: first_name
+        description: "Customer's first name"
+      - name: last_name
+        description: "Customer's last name"
+      - name: email
+        description: "Customer's email address"
+        tests:
+          - not_null
+      - name: order_date
+        description: "Date when the order was placed"
+        tests:
+          - not_null
+      - name: total_amount
+        description: "Total amount of the order"
+```
+
+Run your new model and its tests using the same dbt commands:
+
+1. Run your models with `dbt run`.
+2. Run your tests with `dbt test`.
+
+#### Incremental Models
+
+Incremental models are a way to speed up your dbt run by only processing new or changed data since the last run. To create an incremental model, you need to change the `materialized` property to `incremental` and include a filter for new data in your model.
+
+For example, let's create an incremental version of the `clean_orders` model called `clean_orders_incremental.sql`:
+
+```sql
+{{ config(materialized='incremental') }}
+
+WITH raw_orders AS (
+    SELECT *
+    FROM {{ source('raw_data', 'source_orders') }}
+),
+
+clean_orders AS (
+    SELECT
+        order_id,
+        customer_id,
+        order_date,
+        status,
+        total_amount
+    FROM raw_orders
+    WHERE status <> 'canceled'
+)
+
+SELECT * FROM clean_orders
+
 {% if is_incremental() %}
-    WHERE order_date >= (SELECT MAX(order_date) FROM {{ this }})
+  WHERE order_date > (SELECT MAX(order_date)
+  FROM {{ this }})
+{% endif %}
+
+FROM {{ this }})
 {% endif %}
 ```
 
-### Data Freshness
+Add a new entry in your `schema.yml` file for the `clean_orders_incremental` model:
 
-Data freshness is a metric that measures how up-to-date your data is-
-
+```yaml
+  - name: clean_orders_incremental
+    description: "Cleaned orders, excluding canceled orders (incremental)"
+    columns:
+      - name: order_id
+        description: "Unique identifier for the order"
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: "Unique identifier for the customer who placed the order"
+      - name: order_date
+        description: "Date when the order was placed"
+        tests:
+          - not_null
+      - name: status
+        description: "Status of the order"
+      - name: total_amount
+        description: "Total amount of the order"
+        tests:
+          - not_null
 ```
-in your data warehouse. To configure data freshness in your dbt project, add a `freshness` key to your `sources.yml` file. For example:
+
+Run your new incremental model and its tests using the same dbt commands:
+
+1. Run your models with `dbt run`.
+2. Run your tests with `dbt test`.
+
+#### Data Freshness
+
+Data freshness is a feature that helps you track the age of the data in your models. To declare data freshness, you can add the `freshness` property to your `sources.yml` file:
 
 ```yaml
 version: 2
 
 sources:
   - name: raw_data
+    database: your_snowflake_database
+    schema: MY_SCHEMA
+    freshness:
+      warn_after: { count: 72, period: "hour" }
+      error_after: { count: 168, period: "hour" }
     tables:
       - name: source_orders
-        identifier: "raw_orders"
-        freshness:
-          warn_after:
-            count: 48
-            period: hour
-          error_after:
-            count: 72
-            period: hour
+      - name: source_customers
 ```
 
-### Generating Data Documentation
+Now, you can run the `dbt source freshness` command to check the freshness of your sources:
+
+```
+dbt source freshness
+```
+
+#### Generating Data Documentation
 
 You can generate data documentation for your dbt project using the dbt CLI. To do this, run the following command:
 
@@ -525,7 +649,11 @@ This command will generate a static HTML site with your project documentation. T
 ```bash
 dbt docs serve
 ```
+This will open the generated documentation in your default web browser, allowing you to explore your dbt project, models, sources, tests, and more.
 
+Remember to take as many screenshots as possible from VSCode, especially when running commands and showing logs, to help your target audience understand the process better.
+
+That's it! With this information, you should have a solid understanding of how to use dbt with Snowflake, create models, sources, tests, macros, and more.
 This will open the documentation site in your web browser.
 
 ![image](https://user-images.githubusercontent.com/88837021/235299120-3176491c-63a2-41e0-9b3e-fd2ac95028a0.png)
