@@ -92,24 +92,24 @@ A model in dbt is a SQL file that defines a transformation, aggregation, or any 
 ```sql
 WITH raw_orders AS (
     SELECT *
-    FROM {{ ref('source_orders') }}
+    FROM {{ source('raw_data', 'source_orders') }}
 ),
 
-processed_orders AS (
+clean_orders AS (
     SELECT
         order_id,
-        order_date,
         customer_id,
-        order_status,
-        SUM(order_item_quantity * order_item_price) AS total_revenue
+        order_date,
+        status,
+        total_amount
     FROM raw_orders
-    GROUP BY 1, 2, 3, 4
+    WHERE status <> 'canceled'
 )
 
-SELECT * FROM processed_orders
+SELECT * FROM clean_orders
 ```
+![image](https://user-images.githubusercontent.com/88837021/235298384-140e7336-22a4-497f-b785-78c8302fdd4c.png)
 
-![VSCode - Create Model](https://i.imgur.com/5D5HmZY.png)
 
 ### Running Your Model
 
@@ -119,7 +119,7 @@ To run your model, open the terminal in VSCode and run the following command:
 dbt run
 ```
 
-![VSCode - Run Model](https://i.imgur.com/5qsO8kE.png)
+![image](https://user-images.githubusercontent.com/88837021/235298347-43710a93-1326-49d2-8e82-2be3feff92dc.png)
 
 ### Model Selection
 
@@ -165,25 +165,41 @@ For each type of test, you'll need to create a new file and add the appropriate 
 version: 2
 
 models:
-  - name: orders
+  - name: clean_orders
+    description: "Cleaned orders, excluding canceled orders"
     columns:
       - name: order_id
+        description: "Unique identifier for the order"
         tests:
           - unique
+          - not_null
+      - name: customer_id
+        description: "Unique identifier for the customer who placed the order"
+      - name: order_date
+        description: "Date when the order was placed"
+        tests:
+          - not_null
+      - name: status
+        description: "Status of the order"
+      - name: total_amount
+        description: "Total amount of the order"
+        tests:
           - not_null
 ```
 
 2. Data test (in a new `tests` directory):
 
-Create a new file named `check_order_revenue.sql` inside the `tests` directory and add the following SQL code:
+Create a new file named `check_order_revenue.sql` inside the `tests/singular_tests` directory and add the following SQL code:
 
 ```sql
 SELECT
     order_id,
-    total_revenue
-FROM {{ ref('orders') }}
-WHERE total_revenue < 0
+    total_amount
+FROM {{ ref('clean_orders') }}
+WHERE total_amount < 0
 ```
+![image](https://user-images.githubusercontent.com/88837021/235298670-cdfba629-977d-469e-934f-32b7a3eba77a.png)
+
 
 3. Snapshot test (in your `snapshots` directory):
 
